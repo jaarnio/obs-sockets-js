@@ -1,0 +1,110 @@
+Set number of screens
+    1-4
+Set orientation of screens
+    Landscape
+    Portrait BL
+    Portrait BR
+Set layout of screens
+    json object
+Set resolution for each screen
+    pixWidth x pixHeight
+Return total resolution of canvas
+    If layout is Landscape
+        canvasWidth = screens x width
+        canvasHeight = screens x height
+    If layout is Portrait
+        canvasWidth = 
+
+--
+Transform for screen1: {
+  sceneItemTransform: {
+    alignment: 5,
+    boundsAlignment: 0,
+    boundsHeight: 0,
+    boundsType: 'OBS_BOUNDS_NONE',
+    boundsWidth: 0,
+    cropBottom: 0,
+    cropLeft: 0,
+    cropRight: 0,
+    cropToBounds: false,
+    cropTop: 0,
+    height: 540,
+    positionX: 0,
+    positionY: 0,
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    sourceHeight: 540,
+    sourceWidth: 1920,
+    width: 1920
+  }
+}
+Transform for screen2: {
+  sceneItemTransform: {
+    alignment: 5,
+    boundsAlignment: 0,
+    boundsHeight: 0,
+    boundsType: 'OBS_BOUNDS_NONE',
+    boundsWidth: 0,
+    cropBottom: 0,
+    cropLeft: 0,
+    cropRight: 0,
+    cropToBounds: false,
+    cropTop: 0,
+    height: 540,
+    positionX: 0,
+    positionY: 540,
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    sourceHeight: 540,
+    sourceWidth: 1920,
+    width: 1920
+  }
+}
+Transform for screen3: {
+  sceneItemTransform: {
+    alignment: 5,
+    boundsAlignment: 0,
+    boundsHeight: 0,
+    boundsType: 'OBS_BOUNDS_NONE',
+    boundsWidth: 0,
+    cropBottom: 0,
+    cropLeft: 0,
+    cropRight: 0,
+    cropToBounds: false,
+    cropTop: 0,
+    height: 540,
+    positionX: 0,
+    positionY: 1080,
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    sourceHeight: 540,
+    sourceWidth: 1920,
+    width: 1920
+  }
+}
+Transform for screen4: {
+  sceneItemTransform: {
+    alignment: 5,
+    boundsAlignment: 0,
+    boundsHeight: 0,
+    boundsType: 'OBS_BOUNDS_NONE',
+    boundsWidth: 0,
+    cropBottom: 0,
+    cropLeft: 0,
+    cropRight: 0,
+    cropToBounds: false,
+    cropTop: 0,
+    height: 540,
+    positionX: 0,
+    positionY: 1620,
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    sourceHeight: 540,
+    sourceWidth: 1920,
+    width: 1920
+  }
+}

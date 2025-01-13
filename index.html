@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script
+      type="text/javascript"
+      src="./node_modules/obs-websocket-js/dist/obs-ws.global.js"
+    ></script>
+    <title>Document</title>
+  </head>
+  <body>
+    <h1>Connect</h1>
+    <input id="address" placeholder="Address" /><button id="address_button">
+      Connect
+    </button>
+
+    <h1>Scene List</h1>
+    <div id="scene_list"></div>
+
+    <script>
+      import OBSWebSocket, { EventSubscription } from "obs-websocket-js";
+      const obs = new OBSWebSocket();
+
+      document.getElementById("address_button").addEventListener("click", (e) => {
+        const address = document.getElementById("address").value;
+        console.log(address);
+        obs
+          .connect({
+            address: address,
+          })
+          .then(() => {
+            console.log("Connected");
+          })
+          .catch((err) => {
+            console.error("Promise Rejected", err);
+          });
+      });
+
+      obs.on("ConnectionOpened", () => {
+        obs.send("GetSceneList").then((data) => {
+          const sceneListDiv = document.getElementById("scene_list");
+
+          data.scenes.forEach((scene) => {
+            const sceneElement = document.createElement("button");
+            sceneElement.textContent = scene.name;
+            sceneElement.onclick = function () {
+              obs.send("SetCurrentScene", {
+                "scene-name": scene.name,
+              });
+            };
+
+            sceneListDiv.appendChild(sceneElement);
+          });
+        });
+      });
+    </script>
+  </body>
+</html>
