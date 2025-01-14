@@ -16,6 +16,41 @@ Return total resolution of canvas
         canvasWidth = 
 
 --
+
+function setSceneItemTransforms(
+  sceneId,
+  item,
+  rotate,
+  width,
+  height,
+  positionX,
+  positionY,
+  alignment
+) {
+  obs
+    .call("SetSceneItemTransform", {
+      sceneUuid: sceneId,
+      sceneItemId: item,
+      sceneItemTransform: {
+        rotation: rotate,
+        alignment: alignment,
+        width: width,
+        height: height,
+        scaleX: 1,
+        scaleY: 1,
+        positionX: positionX,
+        positionY: positionY,
+      },
+    })
+    .then(() => {
+      console.log("Adjusting Scene Item...");
+    })
+    .catch((err) => {
+      console.error("Error adjusting scene item", err);
+    });
+}
+
+--
 Transform for screen1: {
   sceneItemTransform: {
     alignment: 5,
