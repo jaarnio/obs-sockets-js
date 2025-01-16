@@ -3,57 +3,75 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script
-      type="text/javascript"
-      src="./node_modules/obs-websocket-js/dist/obs-ws.global.js"
-    ></script>
-    <title>Document</title>
+    <title>Magewell Devices</title>
+    <style>
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        border: 1px solid black;
+        padding: 8px;
+        text-align: left;
+      }
+    </style>
   </head>
   <body>
-    <h1>Connect</h1>
-    <input id="address" placeholder="Address" /><button id="address_button">
-      Connect
-    </button>
-
-    <h1>Scene List</h1>
-    <div id="scene_list"></div>
+    <h1>Player Output</h1>
+    <table id="devicesTable">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Encoder IP</th>
+          <th>Width</th>
+          <th>Height</th>
+          <th>FPS</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
 
     <script>
-      import OBSWebSocket, { EventSubscription } from "obs-websocket-js";
-      const obs = new OBSWebSocket();
+      async function fetchDevices() {
+        const response = await fetch("http://localhost:3000/getDevices");
+        const devices = await response.json();
+        const tableBody = document.getElementById("devicesTable").querySelector("tbody");
+        tableBody.innerHTML = "";
 
-      document.getElementById("address_button").addEventListener("click", (e) => {
-        const address = document.getElementById("address").value;
-        console.log(address);
-        obs
-          .connect({
-            address: address,
-          })
-          .then(() => {
-            console.log("Connected");
-          })
-          .catch((err) => {
-            console.error("Promise Rejected", err);
-          });
-      });
-
-      obs.on("ConnectionOpened", () => {
-        obs.send("GetSceneList").then((data) => {
-          const sceneListDiv = document.getElementById("scene_list");
-
-          data.scenes.forEach((scene) => {
-            const sceneElement = document.createElement("button");
-            sceneElement.textContent = scene.name;
-            sceneElement.onclick = function () {
-              obs.send("SetCurrentScene", {
-                "scene-name": scene.name,
-              });
-            };
-
-            sceneListDiv.appendChild(sceneElement);
-          });
+        devices.forEach((device) => {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+          <td>${device.name}</td>
+          <td>${device.ip}</td>
+          <td id="width-${device.ip}">-</td>
+          <td id="height-${device.ip}">-</td>
+          <td id="fieldrate-${device.ip}">-</td>
+        `;
+          tableBody.appendChild(row);
         });
-      });
+
+        fetchSignalInfo();
+      }
+
+      async function fetchSignalInfo() {
+        const response = await fetch("http://localhost:3000/getSignalInfo");
+        const signalInfo = await response.json();
+
+        signalInfo.forEach((info) => {
+          if (info.error) {
+            document.getElementById(`width-${info.ip}`).innerText = info.error;
+            document.getElementById(`height-${info.ip}`).innerText = info.error;
+            document.getElementById(`fieldrate-${info.ip}`).innerText = info.error;
+          } else {
+            document.getElementById(`width-${info.ip}`).innerText = info.width;
+            document.getElementById(`height-${info.ip}`).innerText = info.height;
+            document.getElementById(`fieldrate-${info.ip}`).innerText = info.fieldrate;
+          }
+        });
+      }
+
+      fetchDevices();
     </script>
   </body>
 </html>
