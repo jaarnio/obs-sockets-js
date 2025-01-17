@@ -54,6 +54,139 @@ async function setVideoSettings(totalCanvas, fpsDenominator) {
     });
 }
 
+async function readJsonFile(fileName) {
+  return new Promise((resolve, reject) => {
+    fs.readFile(fileName, (err, data) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(JSON.parse(data));
+      }
+    });
+  });
+}
+
+async function getSceneItems(obsObject) {
+  //console.log("Getting Scene Items:", obsObject);
+  try {
+    const obsObject = await readJsonFile("obs.json");
+
+    const sceneName = obsObject.sceneName;
+    //console.log("Scene Name:", sceneName);
+
+    // Extract the source names from the sources array
+    const sources = obsObject.sources.map((source) => Object.values(source)[0]);
+    //console.log("Sources:", sources);
+
+    const sceneList = await obs.call("GetSceneList");
+    //console.log("Scene List:", sceneList);
+
+    const mySceneId = sceneList.currentProgramSceneUuid;
+
+    const sceneItemList = await obs.call("GetSceneItemList", { sceneName });
+    //console.log("Scene Item List", sceneItemList);
+
+    console.log("Source Names", sources);
+    const sceneItems = sources.map((source) => {
+      const sceneItem = sceneItemList.sceneItems.find(
+        (item) => item.sourceName === source
+      );
+      if (sceneItem) {
+        return {
+          sourceName: source,
+          sceneItemId: sceneItem.sceneItemId,
+        };
+      } else {
+        console.warn(`Scene item not found for source name: ${source}`);
+        return null;
+      }
+    });
+
+    return { mySceneId, sceneItems };
+  } catch (err) {
+    console.error("Error getting scene items", err);
+    return null;
+  }
+}
+
+async function setSceneItemTransforms(mySceneId, sceneItems) {
+  try {
+    const [cols, rows] = layout.split("x").map(Number);
+    const alignmentMap = {
+      0: 5,
+      90: 9,
+      270: 6,
+    };
+    const alignment = alignmentMap[rotation] || 5;
+
+    await Promise.all(
+      sceneItems.map(async (sceneItem, index) => {
+        const col = index % cols;
+        const row = Math.floor(index / cols);
+
+        let positionX, positionY;
+        if (rotation === 0) {
+          positionX = col * resolution.width;
+          positionY = row * resolution.height;
+        } else if (rotation === 90) {
+          positionX = row * resolution.height;
+          positionY = col * resolution.width;
+        } else if (rotation === 270) {
+          positionX = (rows - row - 1) * resolution.height;
+          positionY = (cols - col - 1) * resolution.width;
+        }
+
+        const sceneItemTransform = {
+          rotation: rotation,
+          alignment: alignment,
+          scaleX: 1,
+          scaleY: 1,
+          positionX: positionX,
+          positionY: positionY,
+        };
+
+        await obs.call("SetSceneItemTransform", {
+          sceneUuid: mySceneId,
+          sceneItemId: sceneItem.sceneItemId,
+          sceneItemTransform: sceneItemTransform,
+        });
+      })
+    );
+    return true; // Return pass value
+  } catch (err) {
+    console.error(`Error adjusting scene item for ${mySceneID}`, err);
+    return false; // Return fail value
+  }
+}
+
+// OBS Configure Scene
+async function configureScene() {
+  const mySceneItems = await getSceneItems();
+  console.log("Found Scene Items:", mySceneItems);
+  // Step 4: Set scene item transforms
+  console.log(
+    "Setting scene item transforms...",
+    mySceneItems.mySceneId,
+    mySceneItems.sceneItems
+  );
+  const setTransformsSuccess = await setSceneItemTransforms(
+    mySceneItems.mySceneId,
+    mySceneItems.sceneItems
+  );
+  if (!setTransformsSuccess) {
+    throw new Error("Failed to set scene item transforms");
+  }
+  console.log("Scene item transforms set successfully");
+
+  // Step 5: Get scene item transforms to view final results
+  //    const finalTransforms = await getSceneItemTransforms(
+  //      sceneName,
+  //      mySceneID,
+  //      sceneItems
+  //    );
+  //console.log("Final scene item transforms:", finalTransforms);
+}
+
 // login and get session ID
 async function login(ip, username, password) {
   try {
@@ -183,6 +316,9 @@ app.post("/setLayout", (req, res) => {
           getVideo["out-cx"],
           getVideo["out-cy"]
         );
+        resolution.width = getVideo["out-cx"];
+        resolution.height = getVideo["out-cy"];
+
         newCanvas = calculateCanvasSize(layout, rotation, {
           width: getVideo["out-cx"],
           height: getVideo["out-cy"],
@@ -199,7 +335,7 @@ app.post("/setLayout", (req, res) => {
       }
     }
     await setVideoSettings(canvas, fps);
-    //res.json(results);
+    await configureScene();
   });
 
   res.status(200).send({ message: "Layout and rotation updated successfully." });
