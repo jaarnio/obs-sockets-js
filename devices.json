@@ -2,25 +2,25 @@
     {
         "name": "HDMI-1",
         "ip": "192.168.31.103",
-        "username": "dev",
+        "userName": "dev",
         "password": "password"
     },
     {
         "name": "HDMI-2",
         "ip": "192.168.31.104",
-        "username": "dev",
+        "userName": "dev",
         "password": "password"
     },
     {
         "name": "HDMI-3",
         "ip": "192.168.31.105",
-        "username": "dev",
+        "userName": "dev",
         "password": "password"
     },
     {
         "name": "HDMI-4",
         "ip": "192.168.31.106",
-        "username": "dev",
+        "userName": "dev",
         "password": "password"
     }
 ]

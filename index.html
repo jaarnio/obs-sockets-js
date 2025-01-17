@@ -3,75 +3,117 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Magewell Devices</title>
-    <style>
-      table {
-        width: 100%;
-        border-collapse: collapse;
+    <title>Device Signal Info</title>
+    <script>
+      async function fetchSignalInfo() {
+        try {
+          const response = await fetch("http://localhost:3000/getSignalInfo");
+          const data = await response.json();
+          console.log(data);
+          // Filter out devices with "no signal"
+          const filteredData = data.filter((device) =>
+            device.signalInfo.hasOwnProperty("video-info")
+          );
+          // Update the UI with the signal info
+          const signalInfoContainer = document.getElementById("signalInfoContainer");
+          signalInfoContainer.innerHTML = buildTable(filteredData);
+
+          // Generate layout options based on the number of devices with valid signals
+          generateLayoutOptions(filteredData.length);
+        } catch (error) {
+          console.error("Error fetching signal info:", error);
+        }
       }
-      th,
-      td {
-        border: 1px solid black;
-        padding: 8px;
-        text-align: left;
+
+      function buildTable(data) {
+        let table =
+          "<table border='1'><tr><th>Device</th><th>Width</th><th>Height</th><th>Field Rate</th><th>Color Depth</th><th>Color Format</th><th>Aspect Ratio</th></tr>";
+        data.forEach((device) => {
+          const videoInfo = device.signalInfo["video-info"];
+          table += `<tr>
+                      <td>${device.device}</td>
+                      <td>${videoInfo.width}</td>
+                      <td>${videoInfo.height}</td>
+                      <td>${videoInfo["field-rate"]}</td>
+                      <td>${videoInfo["color-depth"]}</td>
+                      <td>${videoInfo["color-format"]}</td>
+                      <td>${videoInfo["aspect-ratio"]}</td>
+                    </tr>`;
+        });
+        table += "</table>";
+        return table;
       }
-    </style>
+
+      function generateLayoutOptions(deviceCount) {
+        const layoutOptionsContainer = document.getElementById("layoutOptionsContainer");
+        layoutOptionsContainer.innerHTML = ""; // Clear previous options
+
+        const rotations = [0, 90, 270];
+        const layouts = getLayouts(deviceCount);
+
+        rotations.forEach((rotation) => {
+          layouts.forEach((layout) => {
+            const optionId = `layout-${rotation}-${layout}`;
+            layoutOptionsContainer.innerHTML += `
+              <div>
+                <input type="radio" id="${optionId}" name="layoutOption" value="${rotation}-${layout}" onchange="submitLayout('${rotation}', '${layout}')">
+                <label for="${optionId}">Rotation: ${rotation}, Layout: ${layout}</label>
+              </div>
+            `;
+          });
+        });
+
+        // Set default selection and submit
+        if (layouts.length > 0) {
+          const defaultOption = document.querySelector(`input[name="layoutOption"]`);
+          defaultOption.checked = true;
+          submitLayout(
+            defaultOption.value.split("-")[0],
+            defaultOption.value.split("-")[1]
+          );
+        }
+      }
+
+      function getLayouts(deviceCount) {
+        const layouts = [];
+        if (deviceCount === 1) {
+          layouts.push("1x1");
+        } else if (deviceCount === 2) {
+          layouts.push("1x2", "2x1");
+        } else if (deviceCount === 3) {
+          layouts.push("1x3", "3x1");
+        } else if (deviceCount === 4) {
+          layouts.push("2x2", "1x4", "4x1");
+        }
+        // Add more layout options as needed
+        return layouts;
+      }
+
+      async function submitLayout(rotation, layout) {
+        try {
+          const response = await fetch("http://localhost:3000/setLayout", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ rotation, layout }),
+          });
+          const data = await response.json();
+          console.log("Layout set:", data);
+        } catch (error) {
+          console.error("Error setting layout:", error);
+        }
+      }
+
+      document.addEventListener("DOMContentLoaded", () => {
+        fetchSignalInfo();
+      });
+    </script>
   </head>
   <body>
-    <h1>Player Output</h1>
-    <table id="devicesTable">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Encoder IP</th>
-          <th>Width</th>
-          <th>Height</th>
-          <th>FPS</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-
-    <script>
-      async function fetchDevices() {
-        const response = await fetch("http://localhost:3000/getDevices");
-        const devices = await response.json();
-        const tableBody = document.getElementById("devicesTable").querySelector("tbody");
-        tableBody.innerHTML = "";
-
-        devices.forEach((device) => {
-          const row = document.createElement("tr");
-          row.innerHTML = `
-          <td>${device.name}</td>
-          <td>${device.ip}</td>
-          <td id="width-${device.ip}">-</td>
-          <td id="height-${device.ip}">-</td>
-          <td id="fieldrate-${device.ip}">-</td>
-        `;
-          tableBody.appendChild(row);
-        });
-
-        fetchSignalInfo();
-      }
-
-      async function fetchSignalInfo() {
-        const response = await fetch("http://localhost:3000/getSignalInfo");
-        const signalInfo = await response.json();
-
-        signalInfo.forEach((info) => {
-          if (info.error) {
-            document.getElementById(`width-${info.ip}`).innerText = info.error;
-            document.getElementById(`height-${info.ip}`).innerText = info.error;
-            document.getElementById(`fieldrate-${info.ip}`).innerText = info.error;
-          } else {
-            document.getElementById(`width-${info.ip}`).innerText = info.width;
-            document.getElementById(`height-${info.ip}`).innerText = info.height;
-            document.getElementById(`fieldrate-${info.ip}`).innerText = info.fieldrate;
-          }
-        });
-      }
-
-      fetchDevices();
-    </script>
+    <h1>Device Signal Info</h1>
+    <div id="signalInfoContainer"></div>
+    <h2>Select Layout</h2>
+    <div id="layoutOptionsContainer"></div>
   </body>
 </html>

@@ -1,0 +1,17 @@
+{
+    "sceneName": "Scene",
+    "sources": [
+        {
+            "sourceName1": "HDMI-1"
+        },
+        {
+            "sourceName2": "HDMI-2"
+        },
+        {
+            "sourceName3": "HDMI-3"
+        },
+        {
+            "sourceName4": "HDMI-4"
+        }
+    ]
+}
