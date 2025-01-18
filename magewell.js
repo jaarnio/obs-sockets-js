@@ -1,9 +1,10 @@
 const { OBSWebSocket } = require("obs-websocket-js");
 const express = require("express");
-const fs = require("fs");
 const axios = require("axios");
 const cors = require("cors");
-const crypto = require("crypto");
+const { windowManager } = require("node-window-manager");
+
+const { md5Encrypt, readJsonFile } = require("./utility");
 
 const obs = new OBSWebSocket();
 const app = express();
@@ -26,149 +27,178 @@ let fps = 30;
 let sessionId = null;
 const DEFAULT_VALUE = "No Signal";
 
-// encrypt password to MD5 for Magewell login
-function md5Encrypt(text) {
-  return crypto.createHash("md5").update(text).digest("hex");
+async function resizeWindow(windowName, width, height) {
+  try {
+    const windows = windowManager.getWindows();
+
+    // Find the projector window by its title
+    const projectorWindow = windows.find((win) => win.getTitle().includes(windowName));
+
+    if (projectorWindow) {
+      // Restore the window if it's minimized or maximized
+      if (!projectorWindow.isVisible()) {
+        projectorWindow.restore();
+      }
+
+      // Set the desired bounds for the projector window
+      projectorWindow.setBounds({
+        x: 100, // X position
+        y: 100, // Y position
+        width: width,
+        height: height,
+      });
+      console.log("Projector window resized and repositioned successfully.");
+    } else {
+      console.error("Projector window not found.");
+    }
+  } catch (error) {
+    console.error("Error resizing and repositioning projector window:", error);
+  }
 }
 
 // OBS Set Video Scene Size
 async function setVideoSettings(totalCanvas, fpsDenominator) {
-  obs
-    .call("SetVideoSettings", {
-      baseHeight: totalCanvas.height,
-      outputHeight: totalCanvas.height,
-      baseWidth: totalCanvas.width,
-      outputWidth: totalCanvas.width,
-      fpsDenominator: fpsDenominator,
-    })
-    .then(() => {
-      console.log("Configuring Video Settings...");
-      return obs.call("GetVideoSettings");
-    })
-    .then((data) => {
-      console.log("Current Video Settings", data);
-      return "Success";
-    })
-    .catch((err) => {
-      console.error("Error setting video settings", err);
-    });
-}
-
-async function readJsonFile(fileName) {
-  return new Promise((resolve, reject) => {
-    fs.readFile(fileName, (err, data) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(JSON.parse(data));
-      }
-    });
+  await obs.call("SetVideoSettings", {
+    baseHeight: totalCanvas.height,
+    outputHeight: totalCanvas.height,
+    baseWidth: totalCanvas.width,
+    outputWidth: totalCanvas.width,
+    fpsDenominator: fpsDenominator,
   });
+
+  const currentVideoSettings = await obs.call("GetVideoSettings");
+
+  console.log("Current Video Settings", currentVideoSettings);
 }
 
-async function getSceneItems(obsObject) {
-  //console.log("Getting Scene Items:", obsObject);
-  try {
-    const obsObject = await readJsonFile("obs.json");
+async function getSceneItems() {
+  const obsObject = await readJsonFile("obs.json");
+  const sceneName = obsObject.sceneName;
+  // Extract the source names from the sources array
+  const sources = obsObject.sources.map((source) => Object.values(source)[0]);
 
-    const sceneName = obsObject.sceneName;
-    //console.log("Scene Name:", sceneName);
+  const sceneList = await obs.call("GetSceneList");
+  console.log("Scene List:", sceneList);
 
-    // Extract the source names from the sources array
-    const sources = obsObject.sources.map((source) => Object.values(source)[0]);
-    //console.log("Sources:", sources);
+  const mySceneId = sceneList.currentProgramSceneUuid;
+  const sceneItemList = await obs.call("GetSceneItemList", { sceneName });
 
-    const sceneList = await obs.call("GetSceneList");
-    //console.log("Scene List:", sceneList);
+  console.log("Source Names", sources);
+  const sceneItems = sources.map((source) => {
+    const sceneItem = sceneItemList.sceneItems.find((item) => item.sourceName === source);
+    if (sceneItem) {
+      return {
+        sourceName: source,
+        sceneItemId: sceneItem.sceneItemId,
+      };
+    } else {
+      console.warn(`Scene item not found for source name: ${source}`);
+      return null;
+    }
+  });
+  return { mySceneId, sceneItems };
+}
 
-    const mySceneId = sceneList.currentProgramSceneUuid;
+async function calculateRectanglePlacement(layout, resolution, rotation, sceneItems) {
+  // Parse layout string to get the number of columns and rows
+  const [columns, rows] = layout.split("x").map(Number);
 
-    const sceneItemList = await obs.call("GetSceneItemList", { sceneName });
-    //console.log("Scene Item List", sceneItemList);
+  // Extract width and height from resolution
+  let { width, height } = resolution;
 
-    console.log("Source Names", sources);
-    const sceneItems = sources.map((source) => {
-      const sceneItem = sceneItemList.sceneItems.find(
-        (item) => item.sourceName === source
-      );
-      if (sceneItem) {
-        return {
-          sourceName: source,
-          sceneItemId: sceneItem.sceneItemId,
-        };
-      } else {
-        console.warn(`Scene item not found for source name: ${source}`);
-        return null;
-      }
-    });
-
-    return { mySceneId, sceneItems };
-  } catch (err) {
-    console.error("Error getting scene items", err);
-    return null;
+  // Swap width and height if rotation is 90 or 270
+  if (rotation === 90 || rotation === 270) {
+    [width, height] = [height, width];
   }
+
+  // Determine alignment based on rotation
+  let alignment;
+  if (rotation === 0) {
+    alignment = 5;
+  } else if (rotation === 90) {
+    alignment = 9;
+  } else if (rotation === 270) {
+    alignment = 6;
+  } else {
+    throw new Error(`Invalid rotation value: ${rotation}`);
+  }
+
+  // Validate that sceneItems matches the number of rectangles in the layout
+  const totalItems = columns * rows;
+  if (sceneItems.length !== totalItems) {
+    throw new Error(
+      `The number of sceneItems (${sceneItems.length}) does not match the layout (${totalItems} rectangles).`
+    );
+  }
+
+  // Iterate through each rectangle in the layout and update sceneItems
+  let index = 0; // Keep track of the index for sceneItems
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < columns; col++) {
+      // Calculate the x and y position for the current rectangle
+      const x = col * width;
+      const y = row * height;
+
+      // Update the corresponding sceneItem with x, y, and alignment
+      sceneItems[index].x = x;
+      sceneItems[index].y = y;
+      sceneItems[index].alignment = alignment;
+
+      // Log for troubleshooting
+      console.log(
+        `Updated ${sceneItems[index].sourceName}: x=${x}, y=${y}, alignment=${alignment}`
+      );
+
+      // Move to the next sceneItem
+      index++;
+    }
+  }
+
+  // Return the updated sceneItems array
+  return sceneItems;
 }
 
 async function setSceneItemTransforms(mySceneId, sceneItems) {
-  try {
-    const [cols, rows] = layout.split("x").map(Number);
-    const alignmentMap = {
-      0: 5,
-      90: 9,
-      270: 6,
-    };
-    const alignment = alignmentMap[rotation] || 5;
-
-    await Promise.all(
-      sceneItems.map(async (sceneItem, index) => {
-        const col = index % cols;
-        const row = Math.floor(index / cols);
-
-        let positionX, positionY;
-        if (rotation === 0) {
-          positionX = col * resolution.width;
-          positionY = row * resolution.height;
-        } else if (rotation === 90) {
-          positionX = row * resolution.height;
-          positionY = col * resolution.width;
-        } else if (rotation === 270) {
-          positionX = (rows - row - 1) * resolution.height;
-          positionY = (cols - col - 1) * resolution.width;
-        }
-
-        const sceneItemTransform = {
+  console.log("Setting scene item transforms...", mySceneId, sceneItems);
+  let newSceneItems = await calculateRectanglePlacement(
+    layout,
+    resolution,
+    rotation,
+    sceneItems
+  );
+  console.log("New Scene Items", newSceneItems);
+  // Cycle through the sceneItems and make obs.call for each item
+  for (const sceneItem of newSceneItems) {
+    if (sceneItem) {
+      await obs.call("SetSceneItemTransform", {
+        sceneUuid: mySceneId,
+        sceneItemId: sceneItem.sceneItemId,
+        sceneItemTransform: {
           rotation: rotation,
-          alignment: alignment,
+          alignment: sceneItem.alignment,
           scaleX: 1,
           scaleY: 1,
-          positionX: positionX,
-          positionY: positionY,
-        };
-
-        await obs.call("SetSceneItemTransform", {
-          sceneUuid: mySceneId,
-          sceneItemId: sceneItem.sceneItemId,
-          sceneItemTransform: sceneItemTransform,
-        });
-      })
-    );
-    return true; // Return pass value
-  } catch (err) {
-    console.error(`Error adjusting scene item for ${mySceneID}`, err);
-    return false; // Return fail value
+          boundsAlignment: 0,
+          boundsType: "OBS_BOUNDS_NONE",
+          positionX: sceneItem.x,
+          positionY: sceneItem.y,
+        },
+      });
+      const obsResponse = await obs.call("GetSceneItemTransform", {
+        sceneUuid: mySceneId,
+        sceneItemId: sceneItem.sceneItemId,
+      });
+      console.log("Updated Scene Item", sceneItem.sceneItemId, obsResponse);
+    }
   }
+  return true; // Return pass value
 }
 
 // OBS Configure Scene
 async function configureScene() {
+  await setVideoSettings(canvas, fps);
   const mySceneItems = await getSceneItems();
-  console.log("Found Scene Items:", mySceneItems);
-  // Step 4: Set scene item transforms
-  console.log(
-    "Setting scene item transforms...",
-    mySceneItems.mySceneId,
-    mySceneItems.sceneItems
-  );
+
   const setTransformsSuccess = await setSceneItemTransforms(
     mySceneItems.mySceneId,
     mySceneItems.sceneItems
@@ -176,15 +206,8 @@ async function configureScene() {
   if (!setTransformsSuccess) {
     throw new Error("Failed to set scene item transforms");
   }
-  console.log("Scene item transforms set successfully");
 
-  // Step 5: Get scene item transforms to view final results
-  //    const finalTransforms = await getSceneItemTransforms(
-  //      sceneName,
-  //      mySceneID,
-  //      sceneItems
-  //    );
-  //console.log("Final scene item transforms:", finalTransforms);
+  await resizeWindow("Projector", canvas.width, canvas.height);
 }
 
 // login and get session ID
@@ -247,7 +270,7 @@ function calculateCanvasSize(screenLayout, screenRotation, screenResolution) {
 }
 
 // API endpoint to set layout and rotation
-app.post("/setLayout", (req, res) => {
+app.post("/setLayout", async (req, res) => {
   const { rotation: newRotation, layout: newLayout } = req.body;
 
   // Convert rotation to an integer
@@ -283,96 +306,84 @@ app.post("/setLayout", (req, res) => {
   resolution.width = Math.round(resolution.width * scaleFactor);
   resolution.height = Math.round(resolution.height * scaleFactor);
 
-  console.log("New approx canvas size:", newCanvas);
-  console.log("New approx resolution:", resolution);
-  console.log("Scale factor:", scaleFactor);
+  //console.log("New approx canvas size:", newCanvas);
+  //console.log("New approx resolution:", resolution);
+  //console.log("Scale factor:", scaleFactor);
 
-  fs.readFile("devices.json", async (err, data) => {
-    if (err) {
-      res.status(500).send("Error reading devices file");
-      return;
+  const devices = await readJsonFile("devices.json");
+  const results = [];
+
+  for (const device of devices) {
+    try {
+      const setVideo = await makeApiCall(
+        device.ip,
+        `set-video-config&out-raw-resolution=false&out-cx=${resolution.width}&out-cy=${resolution.height}&out-fr-convertion=half`,
+        device.userName,
+        device.password
+      );
+      // Need to add an api call here to check video settings and see where the Magewell actually landed, then use that as the new resolution value.
+      const getVideo = await makeApiCall(
+        device.ip,
+        "get-video-config",
+        device.userName,
+        device.password
+      );
+      console.log(
+        "Actual size for device",
+        device.name,
+        getVideo["out-cx"],
+        getVideo["out-cy"]
+      );
+      resolution.width = getVideo["out-cx"];
+      resolution.height = getVideo["out-cy"];
+
+      newCanvas = calculateCanvasSize(layout, rotation, {
+        width: getVideo["out-cx"],
+        height: getVideo["out-cy"],
+      });
+      // Add % to the canvas size to account for rounding errors
+      newCanvas.width = Math.round(newCanvas.width * 1.02);
+      newCanvas.height = Math.round(newCanvas.height * 1.02);
+
+      console.log("New canvas size:", newCanvas);
+      canvas = newCanvas;
+    } catch (error) {
+      console.error(`Error for device ${device.name}:`, error);
+      //results.push({ device: device.name, error: error.message });
     }
-    const devices = JSON.parse(data);
-    const results = [];
+  }
 
-    for (const device of devices) {
-      try {
-        const setVideo = await makeApiCall(
-          device.ip,
-          `set-video-config&out-raw-resolution=false&out-cx=${resolution.width}&out-cy=${resolution.height}&out-fr-convertion=half`,
-          device.userName,
-          device.password
-        );
-        // Need to add an api call here to check video settings and see where the Magewell actually landed, then use that as the new resolution value.
-        const getVideo = await makeApiCall(
-          device.ip,
-          "get-video-config",
-          device.userName,
-          device.password
-        );
-        console.log(
-          "Actual size for device",
-          device.name,
-          getVideo["out-cx"],
-          getVideo["out-cy"]
-        );
-        resolution.width = getVideo["out-cx"];
-        resolution.height = getVideo["out-cy"];
-
-        newCanvas = calculateCanvasSize(layout, rotation, {
-          width: getVideo["out-cx"],
-          height: getVideo["out-cy"],
-        });
-        // Add % to the canvas size to account for rounding errors
-        newCanvas.width = Math.round(newCanvas.width * 1.02);
-        newCanvas.height = Math.round(newCanvas.height * 1.02);
-
-        console.log("New canvas size:", newCanvas);
-        canvas = newCanvas;
-      } catch (error) {
-        console.error(`Error for device ${device.name}:`, error);
-        //results.push({ device: device.name, error: error.message });
-      }
-    }
-    await setVideoSettings(canvas, fps);
-    await configureScene();
-  });
+  await configureScene();
 
   res.status(200).send({ message: "Layout and rotation updated successfully." });
 });
 
 // Endpoint to get signal info for each device
 app.get("/getSignalInfo", async (req, res) => {
-  fs.readFile("devices.json", async (err, data) => {
-    if (err) {
-      res.status(500).send("Error reading devices file");
-      return;
-    }
-    const devices = JSON.parse(data);
-    const results = [];
+  const devices = await readJsonFile("devices.json");
+  const results = [];
 
-    for (const device of devices) {
-      try {
-        const signalInfo = await makeApiCall(
-          device.ip,
-          "get-signal-info",
-          device.userName,
-          device.password
-        );
-        results.push({ device: device.name, signalInfo });
-        if (device.name === "HDMI-1") {
-          resolution.width = signalInfo["video-info"].width;
-          resolution.height = signalInfo["video-info"].height;
-          console.log("Signal info for HDMI-1:", resolution.width, resolution.height);
-        }
-      } catch (error) {
-        console.error(`Error getting signal info for device ${device.name}:`, error);
-        results.push({ device: device.name, error: error.message });
+  for (const device of devices) {
+    try {
+      const signalInfo = await makeApiCall(
+        device.ip,
+        "get-signal-info",
+        device.userName,
+        device.password
+      );
+      results.push({ device: device.name, signalInfo });
+      if (device.name === "HDMI-1") {
+        resolution.width = signalInfo["video-info"].width;
+        resolution.height = signalInfo["video-info"].height;
+        console.log("Signal info for HDMI-1:", resolution.width, resolution.height);
       }
+    } catch (error) {
+      console.error(`Error getting signal info for device ${device.name}:`, error);
+      results.push({ device: device.name, error: error.message });
     }
+  }
 
-    res.json(results);
-  });
+  res.json(results);
 });
 
 app.listen(port, () => {
@@ -384,29 +395,16 @@ obs
   .then(() => {
     console.log("Connected to OBS");
 
-    const rotation = 0;
-    const resolution = { width: 3840, height: 600 };
-    const layout = "1x4";
-    const fps = 30;
-
-    //configureScene(resolution, rotation, layout, fps);
+    obs
+      .call("OpenVideoMixProjector", {
+        videoMixType: "OBS_WEBSOCKET_VIDEO_MIX_TYPE_PROGRAM",
+        projectorGeometry: "0,0,1920,1080",
+        projectorGeometry: Buffer.from(`0,0,1920,1080`).toString("base64"),
+      })
+      .then((response) => {
+        console.log("Projector opened");
+      });
   })
   .catch((err) => {
     console.error("Error connecting to OBS", err);
   });
-
-/* async function main() {
-  const startingWidth = 1920;
-  const startingHeight = 1080;
-  const scaleFactor = 1;
-  const newWidth = startingWidth * scaleFactor;
-  const newHeight = startingHeight * scaleFactor;
-
-  await login();
-  await getInfo(
-    `set-video-config&out-raw-resolution=false&out-cx=${newWidth}&out-cy=${newHeight}&out-fr-convertion=half`
-  );
-  await getInfo("get-signal-info");
-} */
-
-//main();
