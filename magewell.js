@@ -124,12 +124,12 @@ async function calculateRectanglePlacement(layout, resolution, rotation, sceneIt
   }
 
   // Validate that sceneItems matches the number of rectangles in the layout
-  const totalItems = columns * rows;
+  /*   const totalItems = columns * rows;
   if (sceneItems.length !== totalItems) {
     throw new Error(
       `The number of sceneItems (${sceneItems.length}) does not match the layout (${totalItems} rectangles).`
     );
-  }
+  } */
 
   // Iterate through each rectangle in the layout and update sceneItems
   let index = 0; // Keep track of the index for sceneItems
@@ -208,6 +208,23 @@ async function configureScene() {
   }
 
   await resizeWindow("Projector", canvas.width, canvas.height);
+}
+
+async function getInputs() {
+  const inputItems = await obs.call("GetInputList");
+
+  //console.log("Inputs", inputItems);
+  // cycle through each input and run an obs call to getInputSettings
+  const inputs = [];
+  for (const input of inputItems.inputs) {
+    const inputSettings = await obs.call("GetInputAudioMonitorType", {
+      inputName: input.inputName,
+      inputUuid: input.inputUuid,
+    });
+    inputs.push(inputSettings);
+  }
+  console.log("Input Settings", inputs);
+  //return inputs;
 }
 
 // login and get session ID
@@ -354,6 +371,8 @@ app.post("/setLayout", async (req, res) => {
   }
 
   await configureScene();
+
+  await getInputs();
 
   res.status(200).send({ message: "Layout and rotation updated successfully." });
 });
